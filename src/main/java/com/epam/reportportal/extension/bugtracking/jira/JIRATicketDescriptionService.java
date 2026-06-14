@@ -138,7 +138,7 @@ public class JIRATicketDescriptionService {
       appendScreenshots(descriptionBuilder, logs);
     }
 
-    updateWithLogsInfo(descriptionBuilder, backLinkId, ticketRQ);
+    updateWithLogsInfo(descriptionBuilder, logs, ticketRQ);
   }
 
   private void appendScreenshots(StringBuilder descriptionBuilder, List<Log> logs) {
@@ -258,9 +258,8 @@ public class JIRATicketDescriptionService {
             .findFirst().orElse(""));
   }
 
-  private StringBuilder updateWithLogsInfo(StringBuilder descriptionBuilder, Long backLinkId,
+  private StringBuilder updateWithLogsInfo(StringBuilder descriptionBuilder, List<Log> logs,
       PostTicketRQ ticketRQ) {
-    List<Log> logs = loadLogs(backLinkId, ticketRQ);
     if (CollectionUtils.isNotEmpty(logs) && ticketRQ.getIsIncludeLogs()) {
       descriptionBuilder.append(SECTION_SEPARATOR).append(LOG_SECTION_HEADER).append(
           "{panel:title=Test execution log|borderStyle=solid|borderColor=#ccc|titleColor=#34302D|titleBGColor=#6DB33F}");
