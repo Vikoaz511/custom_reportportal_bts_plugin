@@ -18,7 +18,7 @@
 
 package com.epam.reportportal.extension.bugtracking.jira;
 
-import com.epam.reportportal.base.core.configs.DatabaseConfiguration;
+import com.epam.ta.reportportal.config.DatabaseConfiguration;
 import org.springframework.boot.autoconfigure.EnableAutoConfiguration;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.ComponentScan;
@@ -36,5 +36,4 @@ import org.springframework.context.annotation.PropertySource;
 @Import(DatabaseConfiguration.class)
 @PropertySource("classpath:test-application.properties")
 public class TestConfiguration {
-
 }

@@ -21,26 +21,31 @@ import static com.epam.reportportal.extension.bugtracking.jira.utils.SampleData.
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
-import static org.mockito.Mockito.lenient;
-import static org.mockito.Mockito.when;
+import static org.mockito.Mockito.*;
 
 import com.epam.reportportal.extension.bugtracking.jira.JiraStrategy;
-import com.epam.reportportal.base.infrastructure.model.externalsystem.PostTicketRQ;
-import com.epam.reportportal.base.infrastructure.model.externalsystem.Ticket;
-import com.epam.reportportal.base.infrastructure.persistence.binary.DataStoreService;
-import com.epam.reportportal.base.infrastructure.persistence.dao.LogRepository;
-import com.epam.reportportal.base.infrastructure.persistence.dao.TestItemRepository;
-import com.epam.reportportal.base.infrastructure.persistence.entity.item.TestItem;
+import com.epam.reportportal.model.externalsystem.PostTicketRQ;
+import com.epam.reportportal.model.externalsystem.Ticket;
+import com.epam.ta.reportportal.binary.DataStoreService;
+import com.epam.ta.reportportal.dao.LogRepository;
+import com.epam.ta.reportportal.dao.TestItemRepository;
+import com.epam.ta.reportportal.entity.item.TestItem;
+import com.epam.ta.reportportal.entity.log.Log;
 import com.fasterxml.jackson.core.JsonProcessingException;
+
+import java.io.IOException;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Optional;
+
 import lombok.extern.slf4j.Slf4j;
 import org.jasypt.util.text.BasicTextEncryptor;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.condition.DisabledIf;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.web.client.RestTemplateBuilder;
 import org.springframework.web.client.RestTemplate;
@@ -48,6 +53,7 @@ import org.springframework.web.client.RestTemplate;
 
 @Slf4j
 class PostTicketCommandTest extends BaseCommandTest {
+  private static final Logger LOGGER = LoggerFactory.getLogger(JiraStrategy.class);
 
   @Autowired
   BasicTextEncryptor basicTextEncryptor;
@@ -78,7 +84,7 @@ class PostTicketCommandTest extends BaseCommandTest {
         .thenReturn(Optional.of(getClass().getClassLoader().getResourceAsStream("attachment.txt")));*/
 
     Ticket ticket = jiraStrategy.submitTicket(entity, INTEGRATION);
-    log.info(ticket.getTicketUrl());
+    LOGGER.info(ticket.getTicketUrl());
 
     assertNotNull(ticket);
     verifyJiraTicket(ticket);
@@ -87,7 +93,7 @@ class PostTicketCommandTest extends BaseCommandTest {
 
   @Test
   @DisabledIf("disabled")
-  void addAttachmentTest() {
+  void addAttachmentTest() throws IOException {
     var validJiraTicket = "EPMRPP-100426";
     Map<String, String> map = new HashMap<>();
     map.put("file1", "file1.txt");
