@@ -25,15 +25,15 @@ import static com.epam.reportportal.extension.bugtracking.jira.utils.IssueField.
 import static com.epam.reportportal.extension.bugtracking.jira.utils.IssueField.COMPONENTS_FIELD;
 import static com.epam.reportportal.extension.bugtracking.jira.utils.IssueField.FIX_VERSIONS_FIELD;
 import static com.epam.reportportal.extension.bugtracking.jira.utils.IssueField.PRIORITY_FIELD;
-import static com.epam.reportportal.base.infrastructure.persistence.commons.Predicates.equalTo;
-import static com.epam.reportportal.base.infrastructure.persistence.commons.Predicates.in;
-import static com.epam.reportportal.base.infrastructure.persistence.commons.Predicates.isNull;
-import static com.epam.reportportal.base.infrastructure.persistence.commons.Predicates.isPresent;
-import static com.epam.reportportal.base.infrastructure.rules.commons.validation.BusinessRule.expect;
-import static com.epam.reportportal.base.infrastructure.rules.commons.validation.Suppliers.formattedSupplier;
-import static com.epam.reportportal.base.infrastructure.rules.exception.ErrorType.UNABLE_INTERACT_WITH_INTEGRATION;
+import static com.epam.reportportal.rules.commons.validation.BusinessRule.expect;
+import static com.epam.reportportal.rules.commons.validation.Suppliers.formattedSupplier;
+import static com.epam.reportportal.rules.exception.ErrorType.UNABLE_INTERACT_WITH_INTEGRATION;
+import static com.epam.ta.reportportal.commons.Predicates.equalTo;
+import static com.epam.ta.reportportal.commons.Predicates.in;
+import static com.epam.ta.reportportal.commons.Predicates.isNull;
+import static com.epam.ta.reportportal.commons.Predicates.isPresent;
+import static com.epam.ta.reportportal.commons.Predicates.not;
 import static java.util.Optional.ofNullable;
-import static java.util.function.Predicate.not;
 
 import com.epam.reportportal.extension.CommonPluginCommand;
 import com.epam.reportportal.extension.IntegrationGroupEnum;
@@ -51,18 +51,18 @@ import com.epam.reportportal.extension.bugtracking.jira.api.model.SearchResults;
 import com.epam.reportportal.extension.bugtracking.jira.api.model.Version;
 import com.epam.reportportal.extension.bugtracking.jira.client.JiraRestClient;
 import com.epam.reportportal.extension.bugtracking.jira.utils.IssueField;
-import com.epam.reportportal.base.infrastructure.model.externalsystem.AllowedValue;
-import com.epam.reportportal.base.infrastructure.model.externalsystem.PostFormField;
-import com.epam.reportportal.base.infrastructure.model.externalsystem.PostTicketRQ;
-import com.epam.reportportal.base.infrastructure.model.externalsystem.Ticket;
-import com.epam.reportportal.base.infrastructure.persistence.binary.DataStoreService;
-import com.epam.reportportal.base.infrastructure.persistence.dao.LogRepository;
-import com.epam.reportportal.base.infrastructure.persistence.dao.TestItemRepository;
-import com.epam.reportportal.base.infrastructure.persistence.entity.enums.AuthType;
-import com.epam.reportportal.base.infrastructure.persistence.entity.integration.Integration;
-import com.epam.reportportal.base.infrastructure.persistence.entity.integration.IntegrationParams;
-import com.epam.reportportal.base.infrastructure.rules.exception.ErrorType;
-import com.epam.reportportal.base.infrastructure.rules.exception.ReportPortalException;
+import com.epam.reportportal.model.externalsystem.AllowedValue;
+import com.epam.reportportal.model.externalsystem.PostFormField;
+import com.epam.reportportal.model.externalsystem.PostTicketRQ;
+import com.epam.reportportal.model.externalsystem.Ticket;
+import com.epam.reportportal.rules.exception.ErrorType;
+import com.epam.reportportal.rules.exception.ReportPortalException;
+import com.epam.ta.reportportal.binary.DataStoreService;
+import com.epam.ta.reportportal.dao.LogRepository;
+import com.epam.ta.reportportal.dao.TestItemRepository;
+import com.epam.ta.reportportal.entity.enums.AuthType;
+import com.epam.ta.reportportal.entity.integration.Integration;
+import com.epam.ta.reportportal.entity.integration.IntegrationParams;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.DeserializationFeature;
 import com.fasterxml.jackson.databind.JsonNode;
@@ -73,6 +73,8 @@ import com.fasterxml.jackson.databind.introspect.JacksonAnnotationIntrospector;
 import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
 import com.google.common.base.Supplier;
 import com.google.common.base.Suppliers;
+
+import java.io.IOException;
 import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
@@ -93,6 +95,7 @@ import org.apache.hc.client5.http.entity.mime.MultipartEntityBuilder;
 import org.apache.hc.client5.http.impl.classic.CloseableHttpClient;
 import org.apache.hc.client5.http.impl.classic.HttpClients;
 import org.apache.hc.core5.http.ClassicHttpResponse;
+import org.apache.hc.core5.http.io.entity.EntityUtils;
 import org.jasypt.util.text.BasicTextEncryptor;
 import org.pf4j.Extension;
 import org.slf4j.Logger;
@@ -180,8 +183,7 @@ public class JiraStrategy implements ReportPortalExtensionPoint, BtsExtension {
   public boolean testConnection(Integration system) {
     try {
       IntegrationParams params = ofNullable(system.getParams())
-          .orElseThrow(() -> new ReportPortalException(UNABLE_INTERACT_WITH_INTEGRATION,
-              "Integration params are not specified."));
+          .orElseThrow(() -> new ReportPortalException(UNABLE_INTERACT_WITH_INTEGRATION, "Integration params are not specified."));
 
       String url = JiraProps.URL.getParam(params)
           .orElseThrow(() -> new ReportPortalException(UNABLE_INTERACT_WITH_INTEGRATION, "Url is not specified."));
@@ -259,8 +261,7 @@ public class JiraStrategy implements ReportPortalExtensionPoint, BtsExtension {
         List<ProjectComponent> validComponents = jiraProject.getComponents();
 
         validComponents.forEach(component -> expect(component, in(validComponents))
-            .verify(UNABLE_INTERACT_WITH_INTEGRATION,
-                formattedSupplier("Component '{}' not exists in the external system", component)));
+            .verify(UNABLE_INTERACT_WITH_INTEGRATION, formattedSupplier("Component '{}' not exists in the external system", component)));
       }
 
       // TODO consider to modify code below - project cached
@@ -268,11 +269,9 @@ public class JiraStrategy implements ReportPortalExtensionPoint, BtsExtension {
           .filter(input -> issueTypeStr.equalsIgnoreCase(input.getName()))
           .findFirst()
           .orElseThrow(() -> new ReportPortalException(UNABLE_INTERACT_WITH_INTEGRATION,
-              formattedSupplier("Unable post issue with type '{}' for project '{}'.", issueTypeStr,
-                  details.getProject())));
+              formattedSupplier("Unable post issue with type '{}' for project '{}'.", issueTypeStr, details.getProject())));
 
-      IssueUpdateDetails issueRequest = JIRATicketUtils.toIssueInput(client, jiraProject, projectIssueType, ticketRQ,
-          descriptionService.get());
+      IssueUpdateDetails issueRequest = JIRATicketUtils.toIssueInput(client, jiraProject, projectIssueType, ticketRQ, descriptionService.get());
 
       Map<String, String> binaryData = findBinaryData(issueRequest);
 
@@ -284,7 +283,11 @@ public class JiraStrategy implements ReportPortalExtensionPoint, BtsExtension {
 
       // post binary data
       if (!binaryData.isEmpty()) {
-        addAttachment(issueKey, details, binaryData);
+        try {
+          addAttachment(issueKey, details, binaryData);
+        } catch (Exception e) {
+          LOGGER.error("Attachment upload failed for issue {}", issueKey, e);
+        }
       }
 
       return getTicket(issueKey, details.getParams(), client)
@@ -316,8 +319,7 @@ public class JiraStrategy implements ReportPortalExtensionPoint, BtsExtension {
   }
 
   private SearchResults findIssue(String id, JiraRestClient jiraRestClient) {
-    return jiraRestClient.issueSearchApi()
-        .searchForIssuesUsingJql("issue = " + id, null, 50, "", null, null, null, false, false);
+    return jiraRestClient.issueSearchApi().searchForIssuesUsingJql("issue = " + id, null, 50, "", null, null, null, false, false);
   }
 
   /**
@@ -356,8 +358,7 @@ public class JiraStrategy implements ReportPortalExtensionPoint, BtsExtension {
       IssueTypeDetails issueType = jiraProject.getIssueTypes().stream()
           .filter(input -> ticketType.equalsIgnoreCase(input.getName()))
           .findFirst()
-          .orElseThrow(() -> new ReportPortalException(UNABLE_INTERACT_WITH_INTEGRATION,
-              "Issue type '" + ticketType + "' not found"));
+          .orElseThrow(() -> new ReportPortalException(UNABLE_INTERACT_WITH_INTEGRATION, "Issue type '" + ticketType + "' not found"));
 
       PageOfCreateMetaIssueTypeWithField issueCreateMetadata = client.issuesApi()
           .getCreateIssueMetaIssueTypeId(jiraProject.getId(), issueType.getId(), 0, 1000);
@@ -378,8 +379,7 @@ public class JiraStrategy implements ReportPortalExtensionPoint, BtsExtension {
                 if (jsonField.get("allowedValues") != null) {
                   allowedList.addAll(StreamSupport.stream(jsonField.get("allowedValues").spliterator(), false)
                       .filter(JIRATicketUtils::isCustomField)
-                      .map(allowedType -> new AllowedValue(allowedType.get("id").asText(),
-                          allowedType.get("value").asText()))
+                      .map(allowedType -> new AllowedValue(allowedType.get("id").asText(), allowedType.get("value").asText()))
                       .toList());
                 }
 
@@ -401,8 +401,7 @@ public class JiraStrategy implements ReportPortalExtensionPoint, BtsExtension {
                 if (fieldID.equalsIgnoreCase(PRIORITY_FIELD.getValue())) {
                   if (jsonField.get("allowedValues") != null) {
                     allowedList.addAll(StreamSupport.stream(jsonField.get("allowedValues").spliterator(), false)
-                        .map(allowedType -> new AllowedValue(allowedType.get("id").asText(),
-                            allowedType.get("name").asText()))
+                        .map(allowedType -> new AllowedValue(allowedType.get("id").asText(), allowedType.get("name").asText()))
                         .toList());
                   }
                 }
@@ -450,9 +449,9 @@ public class JiraStrategy implements ReportPortalExtensionPoint, BtsExtension {
           .map(IssueTypeDetails::getName)
           .toList();
     } catch (RestClientException e) {
-      throw new ReportPortalException(UNABLE_INTERACT_WITH_INTEGRATION, "Project not found.");
+      throw new ReportPortalException(ErrorType.UNABLE_INTERACT_WITH_INTEGRATION, "Project not found.");
     } catch (Exception e) {
-      throw new ReportPortalException(UNABLE_INTERACT_WITH_INTEGRATION, "Check connection settings.");
+      throw new ReportPortalException(ErrorType.UNABLE_INTERACT_WITH_INTEGRATION, "Check connection settings.");
     }
   }
 
@@ -494,8 +493,7 @@ public class JiraStrategy implements ReportPortalExtensionPoint, BtsExtension {
 
 
   @SneakyThrows
-  public void addAttachment(String issueKey, Integration integration, Map<String, String> binaryData)
-      throws RestClientException {
+  public void addAttachment(String issueKey, Integration integration, Map<String, String> binaryData) throws RestClientException, IOException {
     String url = JiraProps.URL.getParam(integration.getParams())
         .orElseThrow(() -> new ReportPortalException(UNABLE_INTERACT_WITH_INTEGRATION, "Url is not specified."));
     String username = JiraProps.USER_NAME.getParam(integration.getParams())
@@ -523,21 +521,25 @@ public class JiraStrategy implements ReportPortalExtensionPoint, BtsExtension {
         entityBuilder.addPart("file", fileBody);
         count++;
       }
-      if (count > 0) {
-        HttpPost request = new HttpPost(url + String.format("/rest/api/latest/issue/%s/attachments", issueKey));
-        request.setEntity(entityBuilder.build());
-        request.setHeader("X-Atlassian-Token", "no-check");
-        request.setHeader("Authorization", "Basic " + getAuthorizationHeader(username, password));
+    }
 
-        try (CloseableHttpClient httpclient = HttpClients.createDefault()) {
-          httpclient.execute(request, httpResponse -> {
-            if (failedHttpResponse(httpResponse)) {
-              LOGGER.error("{} {}", httpResponse.getCode(), httpResponse.getReasonPhrase());
-              throw new ReportPortalException("Failed to upload attachment for " + issueKey);
-            }
-            return httpResponse;
-          });
-        }
+    if (count > 0) {
+      HttpPost request = new HttpPost(url + String.format("/rest/api/latest/issue/%s/attachments", issueKey));
+      request.setEntity(entityBuilder.build());
+      request.setHeader("X-Atlassian-Token", "no-check");
+      request.setHeader("Authorization", "Basic " + getAuthorizationHeader(username, password));
+
+      try (CloseableHttpClient httpclient = HttpClients.createDefault()) {
+        httpclient.execute(request, httpResponse -> {
+          if (failedHttpResponse(httpResponse)) {
+            String responseBody = httpResponse.getEntity() == null ? ""
+                : EntityUtils.toString(httpResponse.getEntity(), StandardCharsets.UTF_8);
+            LOGGER.error("{} {} {}", httpResponse.getCode(), httpResponse.getReasonPhrase(), responseBody);
+          }
+          return httpResponse;
+        });
+      } catch (Exception e) {
+        LOGGER.error("Failed to upload attachment for {}", issueKey, e);
       }
     }
   }

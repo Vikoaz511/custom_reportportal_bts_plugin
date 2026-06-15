@@ -21,26 +21,25 @@
 
 package com.epam.reportportal.extension.bugtracking.jira;
 
-import static com.epam.reportportal.base.infrastructure.persistence.commons.EntityUtils.INSTANT_TO_LDT;
+import static com.epam.ta.reportportal.commons.EntityUtils.INSTANT_TO_LDT;
 import static java.util.Optional.ofNullable;
 
-import com.epam.reportportal.base.infrastructure.model.externalsystem.PostTicketRQ;
-import com.epam.reportportal.base.infrastructure.persistence.dao.LogRepository;
-import com.epam.reportportal.base.infrastructure.persistence.dao.TestItemRepository;
-import com.epam.reportportal.base.infrastructure.persistence.entity.attachment.Attachment;
-import com.epam.reportportal.base.infrastructure.persistence.entity.item.TestItem;
-import com.epam.reportportal.base.infrastructure.persistence.entity.log.Log;
-import com.epam.reportportal.base.infrastructure.rules.exception.ErrorType;
-import com.epam.reportportal.base.infrastructure.rules.exception.ReportPortalException;
+import com.epam.reportportal.model.externalsystem.PostTicketRQ;
+import com.epam.reportportal.rules.exception.ErrorType;
+import com.epam.reportportal.rules.exception.ReportPortalException;
+import com.epam.ta.reportportal.dao.LogRepository;
+import com.epam.ta.reportportal.dao.TestItemRepository;
+import com.epam.ta.reportportal.entity.attachment.Attachment;
+import com.epam.ta.reportportal.entity.item.TestItem;
+import com.epam.ta.reportportal.entity.log.Log;
 import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
 import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.List;
-import java.util.Locale;
 import java.util.Map;
-import org.apache.commons.collections4.CollectionUtils;
-import org.apache.commons.collections4.MapUtils;
+import org.apache.commons.collections.CollectionUtils;
+import org.apache.commons.collections.MapUtils;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.tika.config.TikaConfig;
 import org.apache.tika.mime.MimeType;
@@ -56,23 +55,20 @@ import org.slf4j.LoggerFactory;
  * @author Dzmitry_Kavalets
  */
 public class JIRATicketDescriptionService {
-
   public static final String JIRA_MARKUP_LINE_BREAK = "\\\\ ";
+  public static final String BACK_LINK_HEADER = "h3.*Back link to Report Portal:*";
   public static final String BACK_LINK_PATTERN = "[Link to defect|%s]%n";
+  public static final String PRE_CONDITION_HEADER = "h3.*Pre-condition:*";
+  public static final String STEPS_HEADER = "h3.*Steps:*";
+  public static final String ACTUAL_RESULT_HEADER = "h3.*Actual Result:*";
+  public static final String EXPECTED_RESULT_HEADER = "h3.*Expected Result:*";
+  public static final String ATTACHMENT_HEADER = "h3.*Attachment:*";
   public static final String CODE = "{code}";
+  private static final String PANEL_TEMPLATE =
+      "{panel:title=%s|borderStyle=solid|borderColor=#ccc|titleColor=#34302D|titleBGColor=#6DB33F}";
   private static final Logger LOGGER = LoggerFactory.getLogger(JIRATicketDescriptionService.class);
-  private static final String DESCRIPTION_TITLE = "h2. Report Portal issue details\n\n";
-  private static final String PRE_CONDITION_LABEL = "Pre-condition";
-  private static final String STEPS_LABEL = "Steps";
-  private static final String ACTUAL_RESULT_LABEL = "Actual Result";
-  private static final String EXPECTED_RESULT_LABEL = "Expected Result";
-  private static final String SCREENSHOT_LABEL = "Screenshot (If Have)";
-  private static final String TESTCASE_ID_LABEL = "Testcase ID";
   private static final String IMAGE_CONTENT = "image";
   private static final String IMAGE_HEIGHT_TEMPLATE = "|height=366!";
-  private static final String SECTION_SEPARATOR = "\n\n";
-  private static final String BACK_LINK_SECTION_HEADER = "Back link to Report Portal";
-  private static final String LOG_SECTION_HEADER = "h3. Test execution log\n";
 
   private final LogRepository logRepository;
   private final TestItemRepository itemRepository;
@@ -94,68 +90,66 @@ public class JIRATicketDescriptionService {
    * @return
    */
   public String getDescription(PostTicketRQ ticketRQ) {
-    if (MapUtils.isEmpty(ticketRQ.getBackLinks())) {
+    if (ticketRQ == null) {
       return "";
     }
     StringBuilder descriptionBuilder = new StringBuilder();
-    descriptionBuilder.append(DESCRIPTION_TITLE);
+    Long testItemId = ticketRQ.getTestItemId();
+    if (testItemId == null) {
+      return "";
+    }
 
-    TestItem item = itemRepository.findById(ticketRQ.getTestItemId()).orElseThrow(
-        () -> new ReportPortalException(ErrorType.TEST_ITEM_NOT_FOUND, ticketRQ.getTestItemId()));
+    TestItem item = itemRepository.findById(testItemId).orElseThrow(
+        () -> new ReportPortalException(ErrorType.TEST_ITEM_NOT_FOUND, testItemId));
 
-    ticketRQ.getBackLinks().keySet().forEach(
-        backLinkId -> updateDescriptionBuilder(descriptionBuilder, ticketRQ, backLinkId, item));
+    Map<Long, String> backLinks = ticketRQ.getBackLinks();
+    if (MapUtils.isEmpty(backLinks)) {
+      backLinks = new LinkedHashMap<>();
+      backLinks.put(testItemId, "");
+    }
+
+    backLinks.forEach(
+        (backLinkId, backLink) -> updateDescriptionBuilder(descriptionBuilder, ticketRQ, backLinkId,
+            backLink, item));
 
     return descriptionBuilder.toString();
   }
 
   private void updateDescriptionBuilder(StringBuilder descriptionBuilder, PostTicketRQ ticketRQ,
-      Long backLinkId, TestItem item) {
-    String backLink = ticketRQ.getBackLinks().get(backLinkId);
-    Map<ReportSection, String> reportSections =
-        extractReportSections(ofNullable(item.getItemResults()).flatMap(result -> ofNullable(
-            result.getIssue())).map(issue -> issue.getIssueDescription()).orElse(""));
-    List<Log> logs = loadLogs(backLinkId, ticketRQ);
-    String testcaseId = StringUtils.defaultIfBlank(reportSections.get(ReportSection.TESTCASE_ID),
-        String.valueOf(backLinkId));
-
-    descriptionBuilder.append("* ").append(TESTCASE_ID_LABEL).append(": ")
-        .append(testcaseId).append("\n");
+      Long backLinkId, String backLink, TestItem item) {
     if (StringUtils.isNotBlank(backLink)) {
-      descriptionBuilder.append("* ").append(BACK_LINK_SECTION_HEADER).append(": ")
-          .append(String.format(BACK_LINK_PATTERN, backLink));
+      descriptionBuilder.append(BACK_LINK_HEADER).append("\n").append(" - ")
+          .append(String.format(BACK_LINK_PATTERN, backLink))
+          .append("\n");
     }
 
-    appendReportSection(descriptionBuilder, PRE_CONDITION_LABEL, reportSections.get(
-        ReportSection.PRE_CONDITION));
-    appendReportSection(descriptionBuilder, STEPS_LABEL, reportSections.get(ReportSection.STEPS));
-    appendReportSection(descriptionBuilder, ACTUAL_RESULT_LABEL,
-        StringUtils.defaultIfBlank(reportSections.get(ReportSection.ACTUAL_RESULT),
-            extractActualResult(logs)));
-    appendReportSection(descriptionBuilder, EXPECTED_RESULT_LABEL, "");
+    ofNullable(item.getItemResults()).flatMap(result -> ofNullable(result.getIssue()))
+        .ifPresent(issue -> {
+          if (StringUtils.isNotBlank(issue.getIssueDescription())) {
+            descriptionBuilder.append(PRE_CONDITION_HEADER).append("\n")
+                .append(issue.getIssueDescription()).append("\n");
+          }
+        });
 
-    if (ticketRQ.getIsIncludeScreenshots()) {
-      appendScreenshots(descriptionBuilder, logs);
+    if (hasRequestedDescriptionContent(ticketRQ)) {
+      List<Log> logs = getLogs(backLinkId, ticketRQ);
+      if (CollectionUtils.isNotEmpty(logs)) {
+        if (ticketRQ.getIsIncludeLogs()) {
+          appendLogPanel(descriptionBuilder, STEPS_HEADER, "Steps", logs);
+          appendLogPanel(descriptionBuilder, ACTUAL_RESULT_HEADER, "Actual Result",
+              Collections.singletonList(logs.get(logs.size() - 1)));
+        }
+        appendExpectedResultSection(descriptionBuilder);
+        if (ticketRQ.getIsIncludeScreenshots()) {
+          appendAttachmentSection(descriptionBuilder, logs);
+        }
+      } else {
+        appendExpectedResultSection(descriptionBuilder);
+      }
     }
-
-    updateWithLogsInfo(descriptionBuilder, logs, ticketRQ);
   }
 
-  private void appendScreenshots(StringBuilder descriptionBuilder, List<Log> logs) {
-    if (CollectionUtils.isEmpty(logs)) {
-      return;
-    }
-    boolean hasScreenshot = logs.stream().anyMatch(log -> ofNullable(log.getAttachment()).isPresent());
-    if (!hasScreenshot) {
-      return;
-    }
-    descriptionBuilder.append("* ").append(SCREENSHOT_LABEL).append(": ");
-    logs.forEach(log -> ofNullable(log.getAttachment()).ifPresent(
-        attachment -> addAttachment(descriptionBuilder, attachment)));
-    descriptionBuilder.append("\n");
-  }
-
-  private List<Log> loadLogs(Long backLinkId, PostTicketRQ ticketRQ) {
+  private List<Log> getLogs(Long backLinkId, PostTicketRQ ticketRQ) {
     return itemRepository.findById(backLinkId)
         .flatMap(item -> ofNullable(item.getLaunchId()).map(launchId -> logRepository
             .findAllUnderTestItemByLaunchIdAndTestItemIdsWithLimit(launchId,
@@ -163,116 +157,33 @@ public class JIRATicketDescriptionService {
         .orElse(Collections.emptyList());
   }
 
-  private void appendReportSection(StringBuilder descriptionBuilder, String label, String value) {
-    descriptionBuilder.append("* ").append(label).append(":");
-    if (StringUtils.isNotBlank(value)) {
-      descriptionBuilder.append(" ").append(value.trim());
+  private void appendLogPanel(StringBuilder descriptionBuilder, String header, String panelTitle,
+      List<Log> logs) {
+    if (CollectionUtils.isEmpty(logs)) {
+      return;
     }
+    descriptionBuilder.append(header).append("\n")
+        .append(String.format(PANEL_TEMPLATE, panelTitle));
+    logs.forEach(log -> descriptionBuilder.append(CODE).append(getFormattedMessage(log))
+        .append(CODE));
+    descriptionBuilder.append("{panel}\n");
+  }
+
+  private void appendExpectedResultSection(StringBuilder descriptionBuilder) {
+    descriptionBuilder.append(EXPECTED_RESULT_HEADER).append("\n\n");
+  }
+
+  private void appendAttachmentSection(StringBuilder descriptionBuilder, List<Log> logs) {
+    descriptionBuilder.append(ATTACHMENT_HEADER).append("\n");
+    logs.forEach(log -> ofNullable(log.getAttachment()).ifPresent(
+        attachment -> addAttachment(descriptionBuilder, attachment)));
     descriptionBuilder.append("\n");
   }
 
-  private Map<ReportSection, String> extractReportSections(String issueDescription) {
-    Map<ReportSection, StringBuilder> sections = new LinkedHashMap<>();
-    for (ReportSection section : ReportSection.values()) {
-      sections.put(section, new StringBuilder());
-    }
-    if (StringUtils.isBlank(issueDescription)) {
-      return toSectionMap(sections);
-    }
-
-    ReportSection currentSection = ReportSection.PRE_CONDITION;
-    for (String rawLine : issueDescription.split("\\R")) {
-      String line = rawLine.trim();
-      ReportSection lineSection = resolveSection(line);
-      if (lineSection != null) {
-        currentSection = lineSection;
-        String value = extractValue(line);
-        if (StringUtils.isNotBlank(value)) {
-          appendSectionValue(sections.get(currentSection), value);
-        }
-        continue;
-      }
-      if (StringUtils.isNotBlank(line)) {
-        appendSectionValue(sections.get(currentSection), line);
-      }
-    }
-    return toSectionMap(sections);
-  }
-
-  private Map<ReportSection, String> toSectionMap(Map<ReportSection, StringBuilder> sections) {
-    Map<ReportSection, String> result = new LinkedHashMap<>();
-    sections.forEach((section, value) -> result.put(section, StringUtils.trimToNull(value.toString())));
-    return result;
-  }
-
-  private ReportSection resolveSection(String line) {
-    String normalized = StringUtils.lowerCase(line, Locale.ROOT);
-    if (normalized.startsWith("pre-condition:") || normalized.startsWith("precondition:")) {
-      return ReportSection.PRE_CONDITION;
-    }
-    if (normalized.startsWith("steps:") || normalized.startsWith("step:")
-        || normalized.startsWith("steps to reproduce:")) {
-      return ReportSection.STEPS;
-    }
-    if (normalized.startsWith("actual result:") || normalized.startsWith("actual:")) {
-      return ReportSection.ACTUAL_RESULT;
-    }
-    if (normalized.startsWith("expected result:") || normalized.startsWith("expected:")) {
-      return ReportSection.EXPECTED_RESULT;
-    }
-    if (normalized.startsWith("testcase id:") || normalized.startsWith("test case id:")
-        || normalized.startsWith("tc id:")) {
-      return ReportSection.TESTCASE_ID;
-    }
-    return null;
-  }
-
-  private String extractValue(String line) {
-    int colonIndex = line.indexOf(':');
-    if (colonIndex < 0 || colonIndex == line.length() - 1) {
-      return "";
-    }
-    return line.substring(colonIndex + 1).trim();
-  }
-
-  private void appendSectionValue(StringBuilder sectionBuilder, String value) {
-    if (sectionBuilder.length() > 0) {
-      sectionBuilder.append("\n");
-    }
-    sectionBuilder.append(value);
-  }
-
-  private String extractActualResult(List<Log> logs) {
-    if (CollectionUtils.isEmpty(logs)) {
-      return "";
-    }
-    return logs.stream()
-        .filter(log -> StringUtils.isNotBlank(log.getLogLevel()))
-        .filter(log -> "ERROR".equalsIgnoreCase(log.getLogLevel())
-            || "FATAL".equalsIgnoreCase(log.getLogLevel()))
-        .map(Log::getLogMessage)
-        .filter(StringUtils::isNotBlank)
-        .findFirst()
-        .orElseGet(() -> logs.stream().map(Log::getLogMessage)
-            .filter(StringUtils::isNotBlank)
-            .findFirst().orElse(""));
-  }
-
-  private StringBuilder updateWithLogsInfo(StringBuilder descriptionBuilder, List<Log> logs,
-      PostTicketRQ ticketRQ) {
-    if (CollectionUtils.isNotEmpty(logs) && ticketRQ.getIsIncludeLogs()) {
-      descriptionBuilder.append(SECTION_SEPARATOR).append(LOG_SECTION_HEADER).append(
-          "{panel:title=Test execution log|borderStyle=solid|borderColor=#ccc|titleColor=#34302D|titleBGColor=#6DB33F}");
-      logs.forEach(log -> updateWithLog(descriptionBuilder, log, true));
-      descriptionBuilder.append("{panel}\n");
-    }
-    return descriptionBuilder;
-  }
-
-  private void updateWithLog(StringBuilder descriptionBuilder, Log log, boolean includeLog) {
-    if (includeLog) {
-      descriptionBuilder.append(CODE).append(getFormattedMessage(log)).append(CODE);
-    }
+  private boolean hasRequestedDescriptionContent(PostTicketRQ ticketRQ) {
+    return Boolean.TRUE.equals(ticketRQ.getIsIncludeComments())
+        || Boolean.TRUE.equals(ticketRQ.getIsIncludeLogs())
+        || Boolean.TRUE.equals(ticketRQ.getIsIncludeScreenshots());
   }
 
   private String getFormattedMessage(Log log) {
@@ -306,13 +217,5 @@ public class JIRATicketDescriptionService {
       }
 
     }
-  }
-
-  private enum ReportSection {
-    PRE_CONDITION,
-    STEPS,
-    ACTUAL_RESULT,
-    EXPECTED_RESULT,
-    TESTCASE_ID
   }
 }
